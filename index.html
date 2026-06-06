@@ -398,9 +398,10 @@ let flangeRows= Array.from({length:FLANGE_ROWS},()=>({type:'',size:'',rating:'',
 let instRows  = Array.from({length:INST_ROWS},  ()=>({type:'',desc:'',         add:'SKIP'}));
 
 // ── NAME GENERATORS ───────────────────────────────────────────────────────
-function pipeName(r)  { return r.size   ? `Pipa Ø ${r.size}`  : ''; }
-function valveName(r) { return r.type&&r.size&&r.cls ? `${r.type} Ø ${r.size}-${r.cls}` : r.type&&r.size ? `${r.type} Ø ${r.size}` : r.type||''; }
-function flangeName(r){ return r.type&&r.size&&r.rating ? `${r.type} Ø ${r.size}-${r.rating}` : r.type&&r.size ? `${r.type} Ø ${r.size}` : r.type||''; }
+function stripIn(s){ return s ? s.replace(/"/g,'') : s; }
+function pipeName(r)  { return r.size   ? `Pipa Ø ${stripIn(r.size)}`  : ''; }
+function valveName(r) { const s=stripIn(r.size); return r.type&&r.size&&r.cls ? `${r.type} Ø ${s}-${r.cls}` : r.type&&r.size ? `${r.type} Ø ${s}` : r.type||''; }
+function flangeName(r){ const s=stripIn(r.size); return r.type&&r.size&&r.rating ? `${r.type} Ø ${s}-${r.rating}` : r.type&&r.size ? `${r.type} Ø ${s}` : r.type||''; }
 function instName(r)  { return r.type ? (r.desc ? `${r.type} - ${r.desc}` : r.type) : ''; }
 
 // ── DUPLICATE DETECTION ───────────────────────────────────────────────────
@@ -759,86 +760,84 @@ function importFromAutoCAD(){
     let counts = { pipe: 0, valve: 0, flange: 0, inst: 0 };
 
     lines.forEach(line => {
-      // split by tabs or spaces separating structural names
       let parts = line.split('\t');
-      if (parts.length < 2) {
-        // Fallback for single cell text without sequence numbers
-        parts = [null, line];
+      if (parts.length < 2) parts = [null, line];
+      
+      const fullMaterialName = (parts[1] ? parts[1].trim() : parts[0].trim());
+
+      // helper: find a size in an array matching with or without trailing "
+      function matchSize(arr, raw){
+        const s = raw.trim();
+        if(arr.includes(s)) return s;
+        if(arr.includes(s+'"')) return s+'"';
+        return '';
       }
-      
-      const fullMaterialName = parts[1] ? parts[1].trim() : parts[0].trim();
-      
-      // 1. MATCH PIPE: "Pipa Ø 3""
+
+      // 1. MATCH PIPE: "Pipa Ø 12" or "Pipa Ø 12""
       if (fullMaterialName.startsWith('Pipa Ø ')) {
-        const size = fullMaterialName.replace('Pipa Ø ', '').trim();
-        if (PIPE_SIZES.includes(size) && pIdx < PIPE_ROWS) {
-          pipeRows[pIdx] = { size: size, add: 'ADD' };
+        const raw = fullMaterialName.replace('Pipa Ø ', '').trim();
+        const size = matchSize(PIPE_SIZES, raw);
+        if (size && pIdx < PIPE_ROWS) {
+          pipeRows[pIdx] = { size, add: 'ADD' };
           pIdx++; counts.pipe++;
         }
       }
-      // 2. MATCH VALVE: "Ball Valve Ø 3"-600#" or "Gate Valve Ø 2""
+      // 2. MATCH VALVE
       else if (VALVE_TYPES.some(t => fullMaterialName.startsWith(t))) {
         const matchedType = VALVE_TYPES.find(t => fullMaterialName.startsWith(t));
         let remainder = fullMaterialName.replace(matchedType, '').replace('Ø', '').trim();
-        
-        let size = '';
-        let cls = '';
-        
+
+        let rawSize = '', cls = '';
         if (remainder.includes('-')) {
           const remParts = remainder.split('-');
-          size = remParts[0].trim();
+          rawSize = remParts[0].trim();
           cls = remParts[1].trim();
         } else {
-          size = remainder.trim();
+          rawSize = remainder.trim();
         }
 
+        const size = matchSize(VALVE_SIZES, rawSize);
         if (vIdx < VALVE_ROWS) {
-          valveRows[vIdx] = { 
-            type: VALVE_TYPES.includes(matchedType) ? matchedType : '', 
-            size: VALVE_SIZES.includes(size) ? size : '', 
-            cls: PRESS_CLASS.includes(cls) ? cls : '', 
-            add: 'ADD' 
+          valveRows[vIdx] = {
+            type: matchedType,
+            size,
+            cls: PRESS_CLASS.includes(cls) ? cls : '',
+            add: 'ADD'
           };
           vIdx++; counts.valve++;
         }
       }
-      // 3. MATCH FLANGE: "W.N. Flange Ø 4"-150#" or "Blind Flange Ø 6""
+      // 3. MATCH FLANGE
       else if (FLANGE_TYPES.some(t => fullMaterialName.startsWith(t))) {
         const matchedType = FLANGE_TYPES.find(t => fullMaterialName.startsWith(t));
         let remainder = fullMaterialName.replace(matchedType, '').replace('Ø', '').trim();
-        
-        let size = '';
-        let rating = '';
-        
+
+        let rawSize = '', rating = '';
         if (remainder.includes('-')) {
           const remParts = remainder.split('-');
-          size = remParts[0].trim();
+          rawSize = remParts[0].trim();
           rating = remParts[1].trim();
         } else {
-          size = remainder.trim();
+          rawSize = remainder.trim();
         }
 
+        const size = matchSize(FLANGE_SIZES, rawSize);
         if (fIdx < FLANGE_ROWS) {
-          flangeRows[fIdx] = { 
-            type: FLANGE_TYPES.includes(matchedType) ? matchedType : '', 
-            size: FLANGE_SIZES.includes(size) ? size : '', 
-            rating: PRESS_CLASS.includes(rating) ? rating : '', 
-            add: 'ADD' 
+          flangeRows[fIdx] = {
+            type: matchedType,
+            size,
+            rating: PRESS_CLASS.includes(rating) ? rating : '',
+            add: 'ADD'
           };
           fIdx++; counts.flange++;
         }
       }
-      // 4. MATCH INSTRUMENTS: "Pressure Gauge - Desc" or "Strainer"
+      // 4. MATCH INSTRUMENTS
       else if (INST_TYPES.some(t => fullMaterialName.startsWith(t))) {
         const matchedType = INST_TYPES.find(t => fullMaterialName.startsWith(t));
-        let desc = fullMaterialName.replace(matchedType, '').replace(/^\s*-\s*/, '').trim();
-
+        const desc = fullMaterialName.replace(matchedType, '').replace(/^\s*-\s*/, '').trim();
         if (iIdx < INST_ROWS) {
-          instRows[iIdx] = { 
-            type: INST_TYPES.includes(matchedType) ? matchedType : '', 
-            desc: desc, 
-            add: 'ADD' 
-          };
+          instRows[iIdx] = { type: matchedType, desc, add: 'ADD' };
           iIdx++; counts.inst++;
         }
       }
