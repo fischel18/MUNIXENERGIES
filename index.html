@@ -748,7 +748,7 @@ function importFromAutoCAD(){
       return;
     }
 
-    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0).reverse();
     
     // Clear the existing state maps before inserting imported data
     pipeRows  = Array.from({length:PIPE_ROWS},  ()=>({size:'',     add:'SKIP'}));
